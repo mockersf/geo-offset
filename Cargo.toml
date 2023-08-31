@@ -14,8 +14,8 @@ categories = ["algorithms"]
 [dependencies]
 geo-types = "0.7"
 itertools = "0.11.0"
-geo-clipper = "0.7.0"
 num-traits = "0.2.8"
+geo-booleanop = { git = "https://github.com/21re/rust-geo-booleanop" }
 
 [dev-dependencies]
 serde = { version = "1.0.99", features = ["derive"] }

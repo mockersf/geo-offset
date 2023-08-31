@@ -1,5 +1,6 @@
 use super::*;
-use geo_clipper::Clipper;
+use geo_booleanop::boolean::{BooleanOp, Float};
+use geo_types::CoordFloat;
 
 /// If offset computing fails this error is returned.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -11,40 +12,40 @@ pub enum OffsetError {
 /// Arcs around corners are made of 5 segments by default.
 pub const DEFAULT_ARC_SEGMENTS: u32 = 5;
 
-pub trait Offset {
-    fn offset(&self, distance: f64) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
+pub trait Offset<F: CoordFloat + Float> {
+    fn offset(&self, distance: F) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
         self.offset_with_arc_segments(distance, DEFAULT_ARC_SEGMENTS)
     }
 
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError>;
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError>;
 }
 
-impl Offset for geo_types::GeometryCollection<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::GeometryCollection<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
         let mut geometry_collection_with_offset = geo_types::MultiPolygon(Vec::new());
         for geometry in self.0.iter() {
             let geometry_with_offset = geometry.offset_with_arc_segments(distance, arc_segments)?;
             geometry_collection_with_offset =
-                geometry_collection_with_offset.union(&geometry_with_offset, 1000.0);
+                geometry_collection_with_offset.union(&geometry_with_offset);
         }
         Ok(geometry_collection_with_offset)
     }
 }
 
-impl Offset for geo_types::Geometry<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::Geometry<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
         match self {
             geo_types::Geometry::Point(point) => {
                 point.offset_with_arc_segments(distance, arc_segments)
@@ -80,27 +81,27 @@ impl Offset for geo_types::Geometry<f64> {
     }
 }
 
-impl Offset for geo_types::MultiPolygon<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::MultiPolygon<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
         let mut polygons = geo_types::MultiPolygon(Vec::new());
         for polygon in self.0.iter() {
             let polygon_with_offset = polygon.offset_with_arc_segments(distance, arc_segments)?;
-            polygons = polygons.union(&polygon_with_offset, 1000.0);
+            polygons = polygons.union(&polygon_with_offset);
         }
         Ok(polygons)
     }
 }
 
-impl Offset for geo_types::Polygon<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::Polygon<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
         let exterior_with_offset = self
             .exterior()
             .offset_with_arc_segments(distance.abs(), arc_segments)?;
@@ -108,22 +109,22 @@ impl Offset for geo_types::Polygon<f64> {
             .offset_with_arc_segments(distance.abs(), arc_segments)?;
 
         Ok(if distance.is_sign_positive() {
-            self.union(&exterior_with_offset, 1000.0)
-                .union(&interiors_with_offset, 1000.0)
+            self.union(&exterior_with_offset)
+                .union(&interiors_with_offset)
         } else {
-            self.difference(&exterior_with_offset, 1000.0)
-                .difference(&interiors_with_offset, 1000.0)
+            self.difference(&exterior_with_offset)
+                .difference(&interiors_with_offset)
         })
     }
 }
 
-impl Offset for geo_types::MultiLineString<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::MultiLineString<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
-        if distance < 0.0 {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
+        if distance < F::zero() {
             return Ok(geo_types::MultiPolygon(Vec::new()));
         }
 
@@ -132,26 +133,26 @@ impl Offset for geo_types::MultiLineString<f64> {
             let line_string_with_offset =
                 line_string.offset_with_arc_segments(distance, arc_segments)?;
             multi_line_string_with_offset =
-                multi_line_string_with_offset.union(&line_string_with_offset, 1000.0);
+                multi_line_string_with_offset.union(&line_string_with_offset);
         }
         Ok(multi_line_string_with_offset)
     }
 }
 
-impl Offset for geo_types::LineString<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::LineString<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
-        if distance < 0.0 {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
+        if distance < F::zero() {
             return Ok(geo_types::MultiPolygon(Vec::new()));
         }
 
         let mut line_string_with_offset = geo_types::MultiPolygon(Vec::new());
         for line in self.lines() {
             let line_with_offset = line.offset_with_arc_segments(distance, arc_segments)?;
-            line_string_with_offset = line_string_with_offset.union(&line_with_offset, 1000.0);
+            line_string_with_offset = line_string_with_offset.union(&line_with_offset);
         }
 
         let line_string_with_offset = line_string_with_offset.0.iter().skip(1).fold(
@@ -162,20 +163,20 @@ impl Offset for geo_types::LineString<f64> {
                     .map(|polygon| vec![polygon.clone()])
                     .unwrap_or_default(),
             ),
-            |result, hole| result.difference(hole, 1000.0),
+            |result, hole| result.difference(hole),
         );
 
         Ok(line_string_with_offset)
     }
 }
 
-impl Offset for geo_types::Line<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::Line<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
-        if distance < 0.0 {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
+        if distance < F::zero() {
             return Ok(geo_types::MultiPolygon(Vec::new()));
         }
 
@@ -195,7 +196,7 @@ impl Offset for geo_types::Line<f64> {
             for i in 0..len {
                 let current_edge = offsets.get(i).unwrap();
                 let prev_edge = offsets.get((i + len + 1) % len).unwrap();
-                create_arc(
+                F::create_arc(
                     &mut vertices,
                     if i == 0 { v1 } else { v2 },
                     distance,
@@ -216,36 +217,36 @@ impl Offset for geo_types::Line<f64> {
     }
 }
 
-impl Offset for geo_types::MultiPoint<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::MultiPoint<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
-        if distance < 0.0 {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
+        if distance < F::zero() {
             return Ok(geo_types::MultiPolygon(Vec::new()));
         }
 
         let mut multi_point_with_offset = geo_types::MultiPolygon(Vec::new());
         for point in self.0.iter() {
             let point_with_offset = point.offset_with_arc_segments(distance, arc_segments)?;
-            multi_point_with_offset = multi_point_with_offset.union(&point_with_offset, 1000.0);
+            multi_point_with_offset = multi_point_with_offset.union(&point_with_offset);
         }
         Ok(multi_point_with_offset)
     }
 }
 
-impl Offset for geo_types::Point<f64> {
+impl<F: EnrichedFloat> Offset<F> for geo_types::Point<F> {
     fn offset_with_arc_segments(
         &self,
-        distance: f64,
+        distance: F,
         arc_segments: u32,
-    ) -> Result<geo_types::MultiPolygon<f64>, OffsetError> {
-        if distance < 0.0 {
+    ) -> Result<geo_types::MultiPolygon<F>, OffsetError> {
+        if distance < F::zero() {
             return Ok(geo_types::MultiPolygon(Vec::new()));
         }
 
-        let mut angle = 0.0;
+        let mut angle = F::zero();
 
         let vertice_count = match arc_segments * 2 {
             count if count % 2 == 0 => count + 1,
@@ -254,7 +255,8 @@ impl Offset for geo_types::Point<f64> {
 
         let contour = (0..vertice_count)
             .map(|_| {
-                angle += 2.0 * std::f64::consts::PI / f64::from(vertice_count); // counter-clockwise
+                angle = angle + F::circle_frag(vertice_count); // counter-clockwise
+
                 geo_types::Coord::from((
                     self.x() + (distance * angle.cos()),
                     self.y() + (distance * angle.sin()),
@@ -269,52 +271,128 @@ impl Offset for geo_types::Point<f64> {
     }
 }
 
-fn create_arc(
-    vertices: &mut Vec<geo_types::Coord<f64>>,
-    center: &geo_types::Coord<f64>,
-    radius: f64,
-    start_vertex: &geo_types::Coord<f64>,
-    end_vertex: &geo_types::Coord<f64>,
-    segment_count: u32,
-    outwards: bool,
-) {
-    let pi2 = std::f64::consts::PI * 2.0;
+trait EnrichedFloat: CoordFloat + Float {
+    fn create_arc(
+        vertices: &mut Vec<geo_types::Coord<Self>>,
+        center: &geo_types::Coord<Self>,
+        radius: Self,
+        start_vertex: &geo_types::Coord<Self>,
+        end_vertex: &geo_types::Coord<Self>,
+        segment_count: u32,
+        outwards: bool,
+    );
 
-    let start_angle = (start_vertex.y - center.y).atan2(start_vertex.x - center.x);
-    let start_angle = if start_angle.is_sign_negative() {
-        start_angle + pi2
-    } else {
-        start_angle
-    };
+    fn circle_frag(frags: u32) -> Self;
+}
 
-    let end_angle = (end_vertex.y - center.y).atan2(end_vertex.x - center.x);
-    let end_angle = if end_angle.is_sign_negative() {
-        end_angle + pi2
-    } else {
-        end_angle
-    };
+impl EnrichedFloat for f32 {
+    fn create_arc(
+        vertices: &mut Vec<geo_types::Coord<f32>>,
+        center: &geo_types::Coord<f32>,
+        radius: f32,
+        start_vertex: &geo_types::Coord<f32>,
+        end_vertex: &geo_types::Coord<f32>,
+        segment_count: u32,
+        outwards: bool,
+    ) {
+        let pi2 = std::f32::consts::PI * 2.0;
 
-    let segment_count = if segment_count % 2 == 0 {
-        segment_count - 1
-    } else {
-        segment_count
-    };
+        let start_angle = (start_vertex.y - center.y).atan2(start_vertex.x - center.x);
+        let start_angle = if start_angle.is_sign_negative() {
+            start_angle + pi2
+        } else {
+            start_angle
+        };
 
-    let angle = if start_angle > end_angle {
-        start_angle - end_angle
-    } else {
-        start_angle + pi2 - end_angle
-    };
+        let end_angle = (end_vertex.y - center.y).atan2(end_vertex.x - center.x);
+        let end_angle = if end_angle.is_sign_negative() {
+            end_angle + pi2
+        } else {
+            end_angle
+        };
 
-    let segment_angle = if outwards { -angle } else { pi2 - angle } / f64::from(segment_count);
+        let segment_count = if segment_count % 2 == 0 {
+            segment_count - 1
+        } else {
+            segment_count
+        };
 
-    vertices.push(*start_vertex);
-    for i in 1..segment_count {
-        let angle = start_angle + segment_angle * f64::from(i);
-        vertices.push(geo_types::Coord::from((
-            center.x + angle.cos() * radius,
-            center.y + angle.sin() * radius,
-        )));
+        let angle = if start_angle > end_angle {
+            start_angle - end_angle
+        } else {
+            start_angle + pi2 - end_angle
+        };
+
+        let segment_angle = if outwards { -angle } else { pi2 - angle } / segment_count as f32;
+
+        vertices.push(*start_vertex);
+        for i in 1..segment_count {
+            let angle = start_angle + segment_angle * i as f32;
+            vertices.push(geo_types::Coord::from((
+                center.x + angle.cos() * radius,
+                center.y + angle.sin() * radius,
+            )));
+        }
+        vertices.push(*end_vertex);
     }
-    vertices.push(*end_vertex);
+
+    fn circle_frag(frags: u32) -> Self {
+        2.0 * std::f32::consts::PI / frags as f32
+    }
+}
+
+impl EnrichedFloat for f64 {
+    fn create_arc(
+        vertices: &mut Vec<geo_types::Coord<f64>>,
+        center: &geo_types::Coord<f64>,
+        radius: f64,
+        start_vertex: &geo_types::Coord<f64>,
+        end_vertex: &geo_types::Coord<f64>,
+        segment_count: u32,
+        outwards: bool,
+    ) {
+        let pi2 = std::f64::consts::PI * 2.0;
+
+        let start_angle = (start_vertex.y - center.y).atan2(start_vertex.x - center.x);
+        let start_angle = if start_angle.is_sign_negative() {
+            start_angle + pi2
+        } else {
+            start_angle
+        };
+
+        let end_angle = (end_vertex.y - center.y).atan2(end_vertex.x - center.x);
+        let end_angle = if end_angle.is_sign_negative() {
+            end_angle + pi2
+        } else {
+            end_angle
+        };
+
+        let segment_count = if segment_count % 2 == 0 {
+            segment_count - 1
+        } else {
+            segment_count
+        };
+
+        let angle = if start_angle > end_angle {
+            start_angle - end_angle
+        } else {
+            start_angle + pi2 - end_angle
+        };
+
+        let segment_angle = if outwards { -angle } else { pi2 - angle } / segment_count as f64;
+
+        vertices.push(*start_vertex);
+        for i in 1..segment_count {
+            let angle = start_angle + segment_angle * i as f64;
+            vertices.push(geo_types::Coord::from((
+                center.x + angle.cos() * radius,
+                center.y + angle.sin() * radius,
+            )));
+        }
+        vertices.push(*end_vertex);
+    }
+
+    fn circle_frag(frags: u32) -> Self {
+        2.0 * std::f64::consts::PI / f64::from(frags)
+    }
 }
